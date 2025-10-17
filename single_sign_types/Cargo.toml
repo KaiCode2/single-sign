@@ -1,0 +1,13 @@
+[package]
+name = "single_sign_types"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { workspace = true, features = ["derive", "std"] }
+alloy-primitives = { workspace = true }
+serde_json = "1.0"
+anyhow = { workspace = true }
+alloy-dyn-abi = { version = "1.3.1", features = ["eip712"] }
+
+

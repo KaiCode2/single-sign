@@ -1,0 +1,5 @@
+{
+  "rust-analyzer.rustup.enable": true,
+  "rust-analyzer.rustup.toolchain": "nightly-2025-07-09",
+  "rust-analyzer.server.extraEnv": { "RUSTUP_TOOLCHAIN": "nightly-2025-07-09" }
+}

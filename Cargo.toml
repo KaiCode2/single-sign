@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = ["host", "methods", "single_sign_types"]
+
+# Always optimize; building and running the guest takes much longer without optimization.
+[profile.dev]
+opt-level = 3
+
+[profile.release]
+debug = 1
+lto = true
+
+[workspace.dependencies]
+anyhow = { version = "1.0.100" }
+serde = { version = "1.0", features = ["derive", "std"] }
+alloy-primitives = { version = "1.4.1", features = ["serde", "k256"] }
+alloy-signer-local = { version = "1.0.41", features = ["keystore"] }
+alloy-signer = { version = "1.0.41" }
+alloy-sol-types = "1.4.1"
+
