@@ -781,10 +781,13 @@ name = "app"
 version = "0.1.0"
 dependencies = [
  "alloy-contract",
+ "alloy-dyn-abi",
  "alloy-primitives",
+ "alloy-provider",
  "alloy-signer",
  "alloy-signer-local",
  "alloy-sol-types",
+ "alloy-transport-http",
  "anyhow",
  "boundless-market",
  "bytemuck",

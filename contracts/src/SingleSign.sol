@@ -2,8 +2,11 @@
 
 pragma solidity ^0.8.20;
 
+import {IERC20} from "openzeppelin/contracts/interfaces/IERC20.sol";
 import {IERC1271} from "openzeppelin/contracts/interfaces/IERC1271.sol";
 import {Ownable} from "openzeppelin/contracts/access/Ownable.sol";
+
+import {IPermit2} from "permit2/interfaces/IPermit2.sol";
 
 import {IRiscZeroVerifier} from "risc0/IRiscZeroVerifier.sol";
 import {ImageID} from "./ImageID.sol";
@@ -30,5 +33,13 @@ contract SingleSign is IERC1271, Ownable {
         } catch {
             return bytes4(0);
         }
+    }
+
+    function approve(address token, uint256 amount) external onlyOwner {
+        IERC20(token).approve(address(this), amount);
+    }
+
+    function transfer(address token, address to, uint256 amount) external onlyOwner {
+        IERC20(token).transfer(to, amount);
     }
 }

@@ -12,6 +12,9 @@ serde_json = { workspace = true }
 alloy-signer = { workspace = true }
 alloy-primitives = { workspace = true }
 alloy-signer-local = { workspace = true, features = ["keystore"] }
+alloy-provider = { version = "1.0.41" }
+alloy-transport-http = { version = "1.0.41" }
+alloy-dyn-abi = { workspace = true }
 alloy-contract = { version = "1.0.41" }
 alloy-sol-types = { workspace = true }
 anyhow = { workspace = true }

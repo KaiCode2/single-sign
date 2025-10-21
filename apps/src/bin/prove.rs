@@ -1,16 +1,30 @@
+use app::PERMIT2_ADDRESS;
 use std::fs;
 use std::path::PathBuf;
-use tracing::{info, debug};
+use tracing::{debug, info};
 
-use alloy_primitives::{Address, Bytes, Signature};
+use alloy_dyn_abi::TypedData;
+use alloy_primitives::{Address, Bytes, Signature, U256};
+use alloy_provider::ProviderBuilder;
 use alloy_signer_local::PrivateKeySigner;
 use anyhow::{bail, Result};
 use clap::Parser;
 use guests::SINGLE_SIGN_ELF;
-use risc0_zkvm::{default_prover, ExecutorEnv};
+use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, VerifierContext};
 use url::Url;
 
 use common::{find_concatenated_json_ranges, Input, Output};
+
+mod contracts {
+    alloy_sol_types::sol!(
+        #![sol(rpc, all_derives)]
+        Permit2,
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../contracts/out/IPermit2.sol/IPermit2.json"
+        )
+    );
+}
 
 /// CLI arguments for proving signatures over aggregated typed-data JSON.
 #[derive(Parser, Debug)]
@@ -45,7 +59,8 @@ struct Args {
     program_url: Option<Url>,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::filter::EnvFilter::from_default_env())
         .init();
@@ -60,10 +75,15 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     // Retain RPC-related params for parity (not used in this local proving flow)
-    let _rpc_url = &args.rpc_url;
-    let _private_key = &args.private_key;
-    let _account_address = &args.account_address;
+    let rpc_url = &args.rpc_url;
+    let private_key = &args.private_key;
+    let account_address = &args.account_address;
     let _program_url = &args.program_url;
+
+    let signer = PrivateKeySigner::from_bytes(&private_key.to_bytes()).unwrap();
+    let provider = ProviderBuilder::new()
+        .wallet(signer)
+        .connect_http(rpc_url.clone());
 
     // Read the aggregated compact JSON bytes from file
     let file_bytes = fs::read(&args.file_path)?;
@@ -93,7 +113,14 @@ fn main() -> Result<()> {
 
         let prover = default_prover();
         info!("Proving input #{i}");
-        let prove_info = prover.prove(env, SINGLE_SIGN_ELF).unwrap();
+        let prove_info = prover
+            .prove_with_ctx(
+                env,
+                &VerifierContext::default(),
+                SINGLE_SIGN_ELF,
+                &ProverOpts::groth16(),
+            )
+            .unwrap();
         let receipt = prove_info.receipt;
 
         // Decode public output committed by the guest
@@ -105,7 +132,47 @@ fn main() -> Result<()> {
         );
 
         // Optional verification example (requires SINGLE_SIGN_ID):
-        // receipt.verify(SINGLE_SIGN_ID).unwrap();
+        receipt.verify(guests::SINGLE_SIGN_ID).unwrap();
+
+        let typed_data: TypedData = serde_json::from_str(
+            &String::from_utf8(typed_data_concat[range.start..range.end].to_vec()).unwrap(),
+        )
+        .unwrap();
+        let digest = typed_data.eip712_signing_hash().unwrap();
+        assert_eq!(digest, output.digest);
+
+        if typed_data.primary_type == "PermitTransferFrom" {
+            // Try calling PermitTransferFrom using Permit2
+            let seal = receipt.inner.groth16()?.seal.clone();
+            let permit = contracts::ISignatureTransfer::PermitTransferFrom {
+                permitted: contracts::ISignatureTransfer::TokenPermissions {
+                    token: typed_data.message["permitted"]["token"]
+                        .as_str()
+                        .unwrap()
+                        .parse()
+                        .unwrap(),
+                    amount: U256::from(typed_data.message["permitted"]["amount"].as_u64().unwrap()),
+                },
+                nonce: U256::from(typed_data.message["nonce"].as_u64().unwrap()),
+                deadline: U256::from(typed_data.message["deadline"].as_u64().unwrap()),
+            };
+            let permit2 = contracts::Permit2::new(PERMIT2_ADDRESS, provider.clone());
+            let tx = permit2
+                .permitTransferFrom_0(
+                    permit,
+                    contracts::ISignatureTransfer::SignatureTransferDetails {
+                        to: signer.clone(),
+                        requestedAmount: U256::from(1_000_000_000_000_000_000u128),
+                    },
+                    account_address.clone(),
+                    Bytes::from(seal),
+                )
+                .send()
+                .await
+                .unwrap();
+            let receipt = tx.get_receipt().await.unwrap();
+            info!("Transaction receipt: {:?}", receipt);
+        }
     }
 
     Ok(())
