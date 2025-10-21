@@ -10,6 +10,7 @@ out/
 !/broadcast
 /broadcast/*/31337/
 /broadcast/*/11155111/
+/broadcast/*/84532/
 /broadcast/**/dry-run/
 
 # Generted by Cargo

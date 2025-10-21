@@ -19,40 +19,28 @@ import {RiscZeroCheats} from "risc0/test/RiscZeroCheats.sol";
 import {Receipt as RiscZeroReceipt} from "risc0/IRiscZeroVerifier.sol";
 import {RiscZeroMockVerifier} from "risc0/test/RiscZeroMockVerifier.sol";
 import {VerificationFailed} from "risc0/IRiscZeroVerifier.sol";
-import {EvenNumber} from "../src/EvenNumber.sol";
+import {SingleSign} from "../src/SingleSign.sol";
 import {ImageID} from "../src/ImageID.sol";
 
-contract EvenNumberTest is RiscZeroCheats, Test {
-    EvenNumber public evenNumber;
+contract SingleSignTest is RiscZeroCheats, Test {
+    address public owner;
+    SingleSign public singleSign;
     RiscZeroMockVerifier public verifier;
 
     function setUp() public {
+        owner = makeAddr("owner");
         verifier = new RiscZeroMockVerifier(0);
-        evenNumber = new EvenNumber(verifier);
-        assertEq(evenNumber.get(), 0);
-    }
-
-    function test_SetEven() public {
-        uint256 number = 12345678;
-        RiscZeroReceipt memory receipt = verifier.mockProve(ImageID.IS_EVEN_ID, sha256(abi.encode(number)));
-
-        evenNumber.set(number, receipt.seal);
-        assertEq(evenNumber.get(), number);
-    }
-
-    function test_SetZero() public {
-        uint256 number = 0;
-        RiscZeroReceipt memory receipt = verifier.mockProve(ImageID.IS_EVEN_ID, sha256(abi.encode(number)));
-
-        evenNumber.set(number, receipt.seal);
-        assertEq(evenNumber.get(), number);
+        singleSign = new SingleSign(owner, verifier);
     }
 
     // Try using a proof for the evenness of 4 to set 1 on the contract.
     function test_RejectInvalidProof() public {
-        RiscZeroReceipt memory receipt = verifier.mockProve(ImageID.IS_EVEN_ID, sha256(abi.encode(4)));
+        RiscZeroReceipt memory receipt = verifier.mockProve(
+            ImageID.SINGLE_SIGN_ID,
+            sha256(abi.encode(address(this), bytes32(0)))
+        );
 
-        vm.expectRevert(VerificationFailed.selector);
-        evenNumber.set(1, receipt.seal);
+        bytes4 result = singleSign.isValidSignature(bytes32(0), receipt.seal);
+        assertEq(result, bytes4(0));
     }
 }

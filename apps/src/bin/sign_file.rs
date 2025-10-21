@@ -16,7 +16,7 @@ struct Args {
     file_path: PathBuf,
 
     /// Optional private key to use for signing; if omitted, a random key is generated.
-    #[clap(long)]
+    #[clap(long, env = "USER_PRIVATE_KEY")]
     private_key: Option<PrivateKeySigner>,
 }
 

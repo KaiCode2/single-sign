@@ -1,10 +1,14 @@
 [profile.default]
 src = "contracts/src"
 out = "contracts/out"
-libs = ["lib", "contracts/src"]
+libs = ["lib"]
 script = "contracts/scripts"
 test = "contracts/test"
 ffi = true
+fs_permissions = [
+    { access = "read", path = "artifacts" },
+    { access = "read", path = "contracts/configs" },
+]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 
@@ -12,3 +16,11 @@ ffi = true
 line_length = 120
 tab_width = 4
 quote_style = "double"
+
+[rpc_endpoints]
+mainnet = "https://lb.drpc.org/ogrpc?network=ethereum&dkey=${DRPC_API_KEY}"
+sepolia = "https://lb.drpc.org/ogrpc?network=sepolia&dkey=${DRPC_API_KEY}"
+base = "https://lb.drpc.org/ogrpc?network=base&dkey=${DRPC_API_KEY}"
+base-sepolia = "https://lb.drpc.org/ogrpc?network=base-sepolia&dkey=${DRPC_API_KEY}"
+arbitrum = "https://lb.drpc.org/ogrpc?network=arbitrum&dkey=${DRPC_API_KEY}"
+arbitrum-sepolia = "https://lb.drpc.org/ogrpc?network=arbitrum-sepolia&dkey=${DRPC_API_KEY}"
