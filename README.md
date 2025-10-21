@@ -1,6 +1,6 @@
 ## Aggregated ERC‑712 Validator (Typed Data Concatenation with Inclusion Proofs)
 
-This project implements an aggregated validator for EIP‑712 typed data using zk-SNARKs. The user signs once over the concatenation of many typed‑data payloads, and then per‑digest proofs attest that a specific digest comes from a slice of that signed payload.
+This project implements an aggregated validator for [EIP‑712](https://eips.ethereum.org/EIPS/eip-712) typed data using zk-SNARKs powered by [RISC Zero](https://risczero.com/). The user signs once over the concatenation of many typed‑data payloads, and then per‑digest proofs attest that a specific digest comes from a slice of that signed payload.
 
 At a high level:
 
@@ -17,6 +17,8 @@ At a high level:
 
 This enables "sign once, prove many" UX for flows like Permit2 where multiple independent EIP‑712 messages would otherwise require separate user signatures.
 
+Note: Smart contracts in `contracts/` are developed and built with Foundry. Use `forge build` to compile contracts before building the Rust components.
+
 ### Why this approach?
 
 - **Clear signing**: The user signs exactly the concatenation of human‑readable typed data, not a Merkle root.
@@ -29,33 +31,68 @@ This enables "sign once, prove many" UX for flows like Permit2 where multiple in
 
 ```text
 single-sign
-├── Cargo.toml                     # Workspace (host, methods, single_sign_types)
-├── host/                          # Host: builds inputs, runs the prover
-│   └── src/main.rs
-├── methods/                       # Guest program (zkVM)
-│   ├── build.rs
-│   ├── guest/src/main.rs          # Verifies signature + computes EIP‑712 digest of slice
-│   └── src/lib.rs                 # Exposes SINGLE_SIGN_ELF & SINGLE_SIGN_ID
-└── single_sign_types/             # Shared types + EIP‑712 helpers
-    └── src/{lib.rs,typed_data.rs,signing.rs}
+├── Cargo.toml                     # Workspace (apps, guests, common)
+├── foundry.toml                   # Foundry config for contracts
+├── apps/                          # CLI binaries
+│   └── src/bin/{prove.rs,sign_file.rs}
+├── common/                        # Shared types + helpers
+│   └── src/{lib.rs,typed_data.rs,signing.rs}
+├── guests/                        # RISC Zero guest program(s)
+│   ├── Cargo.toml
+│   ├── src/lib.rs                 # include!(…/methods.rs) for built methods
+│   └── single-sign/src/main.rs    # Verifies signature + computes digest of slice
+├── contracts/                     # Solidity contracts (Foundry)
+│   ├── src/
+│   ├── test/
+│   └── scripts/
+└── examples/
+    └── typed_data_concat.json
 ```
 
 Notable pieces:
 
-- `single_sign_types::typed_data::verify_digest` parses EIP‑712 JSON and computes its digest.
-- `single_sign_types::signing::verify_signature` checks an EOA signature against the full concatenation.
-- `host/src/main.rs` currently demonstrates three sample Permit2 `PermitTransferFrom` messages, builds compact JSON for each, concatenates them, signs once, and proves/prints `(signer, digest)` per message.
+- `common::typed_data::verify_digest` parses EIP‑712 JSON and computes its digest.
+- `common::signing::verify_signature` checks an EOA signature against the concatenation (EIP‑191 personal mode by default).
+- `apps/src/bin/prove.rs` loads a concatenated typed‑data file, finds slice ranges, proves each inside the zkVM, and prints `(signer, digest)`.
+- `apps/src/bin/sign_file.rs` signs arbitrary file bytes and prints the digest, signature, and signer.
+- `guests/single-sign/src/main.rs` runs inside the zkVM and commits `(signer, digest)` to the journal.
 
 ---
 
 ## Quick Start
 
-Prerequisites: install `rustup` (see `https://rustup.rs`). The pinned toolchain in `rust-toolchain.toml` will be automatically used.
+Prerequisites: install `rustup` (see [rustup.rs](https://rustup.rs)) and Foundry (`forge`) (see the [Foundry installation guide](https://book.getfoundry.sh/getting-started/installation)). The pinned Rust toolchain in `rust-toolchain.toml` will be used automatically.
 
-Build and run (host will compile and execute the guest):
+Build the contracts (Foundry) and the Rust workspace:
+
+```bash
+forge build
+cargo build
+```
+
+Run the host example:
 
 ```bash
 cargo run
+```
+
+### Sample commands
+
+- Sign a file's raw bytes and print digest, signature, and signer:
+
+```bash
+cargo run --bin sign_file -- --file-path ./stash/typed_data_concat.json
+```
+
+- Prove inclusion for each concatenated typed‑data JSON slice and print `(signer, digest)`:
+
+```bash
+cargo run -- --file-path examples/typed_data_concat.json \
+  --signer 0x91738e8f069208baa0efe5441c6d0a9f0b9e27f2 \
+  --signature 0x04a482be75182d5bcb450c039d767cf8e24e3aeb35789a89dd7490ca2828b37468b6b081a55c567c0629df2180c5ca7758c04e3880bf76f2ccb38af3e493bea51c \
+  --rpc-url "https://ethereum-sepolia-rpc.publicnode.com" \
+  --private-key <hex-or-env> \
+  --account-address 0x5989b7E895D7f1bED932A82bEB40eB93264C787B
 ```
 
 For faster local iteration, enable dev‑mode and optional execution logs:

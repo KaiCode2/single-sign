@@ -1,5 +1,25 @@
-.DS_Store
+# Compiler files
+cache/
+out/
+
+# Environment variables
 .env
-Cargo.lock
-methods/guest/Cargo.lock
+*.env
+
+# Ignores development broadcast logs
+!/broadcast
+/broadcast/*/31337/
+/broadcast/*/11155111/
+/broadcast/**/dry-run/
+
+# Generted by Cargo
+debug/
 target/
+
+# Misc
+.DS_Store
+.idea
+
+# Ignore generated files
+contracts/src/ImageID.sol
+contracts/test/Elf.sol

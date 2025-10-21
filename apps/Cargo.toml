@@ -1,0 +1,28 @@
+[package]
+name = "app"
+version = "0.1.0"
+edition = "2021"
+publish = false
+default-run = "prove"
+
+[dependencies]
+common = { path = "../common" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+alloy-signer = { workspace = true }
+alloy-primitives = { workspace = true }
+alloy-signer-local = { workspace = true, features = ["keystore"] }
+alloy-contract = { version = "1.0.41" }
+alloy-sol-types = { workspace = true }
+anyhow = { workspace = true }
+boundless-market = { workspace = true }
+bytemuck = { workspace = true }
+clap = { workspace = true }
+dotenvy = { workspace = true }
+guests = { workspace = true }
+risc0-zkvm = { workspace = true, default-features = true }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+url = { workspace = true }
