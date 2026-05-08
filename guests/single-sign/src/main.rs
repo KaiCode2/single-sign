@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use risc0_zkvm::guest::env;
+use alloy_sol_types::SolValue;
 use common::{
     signing::{verify_signature, MessageMode},
     typed_data::verify_digest,
     Input, Output,
 };
+use risc0_zkvm::guest::env;
 
 fn main() {
     // Read input from the host
@@ -43,5 +44,7 @@ fn main() {
         signer: input.signer,
         digest: typed_data_digest,
     };
-    env::commit(&output);
+    let output = output.abi_encode();
+
+    env::commit_slice(&output);
 }

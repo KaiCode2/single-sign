@@ -3,11 +3,12 @@ use std::fs;
 use std::path::PathBuf;
 use tracing::{debug, info};
 
-use alloy_dyn_abi::TypedData;
+use alloy_dyn_abi::{SolType, TypedData};
 use alloy_primitives::{Address, Bytes, Signature, U256};
 use alloy_provider::ProviderBuilder;
 use alloy_signer_local::PrivateKeySigner;
 use anyhow::{bail, Result};
+use boundless_market::Client;
 use clap::Parser;
 use guests::SINGLE_SIGN_ELF;
 use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, VerifierContext};
@@ -23,6 +24,12 @@ mod contracts {
             env!("CARGO_MANIFEST_DIR"),
             "/../contracts/out/IPermit2.sol/IPermit2.json"
         )
+    );
+
+    alloy_sol_types::sol!(
+        #![sol(rpc, all_derives)]
+        SingleSign,
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../contracts/out/SingleSign.sol/SingleSign.json")
     );
 }
 
@@ -105,31 +112,41 @@ async fn main() -> Result<()> {
         };
         debug!("Input #{i}: {:?}", input);
 
-        let env = ExecutorEnv::builder()
-            .write(&input)
-            .unwrap()
-            .build()
-            .unwrap();
+        // let client = Client::builder()
+        //     .with_rpc_url(rpc_url.clone())
+        //     .with_private_key(private_key.clone())
+        //     .build()
+        //     .await?;
 
-        let prover = default_prover();
+        // let request = client
+        //     .new_request()
+        //     .with_program(SINGLE_SIGN_ELF)
+        //     .with_stdin(input.as_bytes());
+
         info!("Proving input #{i}");
-        let prove_info = prover
-            .prove_with_ctx(
+        let prove_info = tokio::task::spawn_blocking(move || {
+            let env = ExecutorEnv::builder()
+                .write(&input)
+                .unwrap()
+                .build()
+                .unwrap();
+            let prover = default_prover();
+            prover.prove_with_ctx(
                 env,
                 &VerifierContext::default(),
                 SINGLE_SIGN_ELF,
                 &ProverOpts::groth16(),
             )
-            .unwrap();
+        })
+        .await
+        .expect("proving task failed")
+        .unwrap();
+
         let receipt = prove_info.receipt;
 
         // Decode public output committed by the guest
-        let output: Output = receipt.journal.decode().unwrap();
-        info!(
-            "Guest output #{i} -> signer: {:#x}, digest: 0x{}",
-            output.signer,
-            alloy_primitives::hex::encode(output.digest),
-        );
+        let output: Output = Output::abi_decode(&receipt.journal.bytes).unwrap();
+        info!("Guest output #{i} -> {:?}", output);
 
         // Optional verification example (requires SINGLE_SIGN_ID):
         receipt.verify(guests::SINGLE_SIGN_ID).unwrap();
@@ -141,38 +158,68 @@ async fn main() -> Result<()> {
         let digest = typed_data.eip712_signing_hash().unwrap();
         assert_eq!(digest, output.digest);
 
-        if typed_data.primary_type == "PermitTransferFrom" {
-            // Try calling PermitTransferFrom using Permit2
-            let seal = receipt.inner.groth16()?.seal.clone();
-            let permit = contracts::ISignatureTransfer::PermitTransferFrom {
-                permitted: contracts::ISignatureTransfer::TokenPermissions {
-                    token: typed_data.message["permitted"]["token"]
-                        .as_str()
-                        .unwrap()
-                        .parse()
-                        .unwrap(),
-                    amount: U256::from(typed_data.message["permitted"]["amount"].as_u64().unwrap()),
-                },
-                nonce: U256::from(typed_data.message["nonce"].as_u64().unwrap()),
-                deadline: U256::from(typed_data.message["deadline"].as_u64().unwrap()),
-            };
-            let permit2 = contracts::Permit2::new(PERMIT2_ADDRESS, provider.clone());
-            let tx = permit2
-                .permitTransferFrom_0(
-                    permit,
-                    contracts::ISignatureTransfer::SignatureTransferDetails {
-                        to: signer.clone(),
-                        requestedAmount: U256::from(1_000_000_000_000_000_000u128),
-                    },
-                    account_address.clone(),
-                    Bytes::from(seal),
-                )
-                .send()
-                .await
-                .unwrap();
-            let receipt = tx.get_receipt().await.unwrap();
-            info!("Transaction receipt: {:?}", receipt);
-        }
+        let seal = receipt.inner.groth16()?.seal.clone();
+
+        let single_sign = contracts::SingleSign::new(account_address.clone(), provider.clone());
+        let is_valid = single_sign
+            .isValidSignature(digest, seal.into())
+            .call()
+            .await
+            .unwrap();
+        info!("Is valid: {:?}", is_valid);
+
+        // if typed_data.primary_type == "PermitTransferFrom" {
+        //     debug!("PermitTransferFrom");
+        //     debug!("Typed data: {:?}", typed_data);
+        //     // Try calling PermitTransferFrom using Permit2
+        //     let permit = contracts::ISignatureTransfer::PermitTransferFrom {
+        //         permitted: contracts::ISignatureTransfer::TokenPermissions {
+        //             token: typed_data.message["permitted"]["token"]
+        //                 .as_str()
+        //                 .unwrap()
+        //                 .parse()
+        //                 .unwrap(),
+        //             amount: U256::from(
+        //                 typed_data.message["permitted"]["amount"]
+        //                     .as_str()
+        //                     .unwrap()
+        //                     .parse::<u128>()
+        //                     .unwrap(),
+        //             ),
+        //         },
+        //         nonce: U256::from(
+        //             typed_data.message["nonce"]
+        //                 .as_str()
+        //                 .unwrap()
+        //                 .parse::<u64>()
+        //                 .unwrap(),
+        //         ),
+        //         deadline: U256::from(
+        //             typed_data.message["deadline"]
+        //                 .as_str()
+        //                 .unwrap()
+        //                 .parse::<u64>()
+        //                 .unwrap(),
+        //         ),
+        //     };
+        //     let requested_amount = permit.permitted.amount;
+        //     let permit2 = contracts::Permit2::new(PERMIT2_ADDRESS, provider.clone());
+        //     let tx = permit2
+        //         .permitTransferFrom_0(
+        //             permit,
+        //             contracts::ISignatureTransfer::SignatureTransferDetails {
+        //                 to: signer.clone(),
+        //                 requestedAmount: requested_amount,
+        //             },
+        //             account_address.clone(),
+        //             Bytes::from(seal),
+        //         )
+        //         .send()
+        //         .await
+        //         .unwrap();
+        //     let receipt = tx.get_receipt().await.unwrap();
+        //     info!("Transaction receipt: {:?}", receipt);
+        // }
     }
 
     Ok(())

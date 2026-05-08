@@ -35,11 +35,19 @@ contract SingleSign is IERC1271, Ownable {
         }
     }
 
-    function approve(address token, uint256 amount) external onlyOwner {
-        IERC20(token).approve(address(this), amount);
+    function approve(
+        address token,
+        address spender,
+        uint256 amount
+    ) external onlyOwner {
+        IERC20(token).approve(spender, amount);
     }
 
-    function transfer(address token, address to, uint256 amount) external onlyOwner {
+    function transfer(
+        address token,
+        address to,
+        uint256 amount
+    ) external onlyOwner {
         IERC20(token).transfer(to, amount);
     }
 }

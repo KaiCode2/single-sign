@@ -1,7 +1,8 @@
 pub mod signing;
 pub mod typed_data;
 
-use alloy_primitives::{Address, Bytes, Signature, B256};
+use alloy_primitives::{Address, Bytes, Signature};
+use alloy_sol_types::sol;
 use serde::{Deserialize, Serialize};
 use anyhow::{anyhow, Result};
 
@@ -19,11 +20,13 @@ pub struct Input {
     pub digest_range: DigestRange,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Output {
-    pub signer: Address,
-    pub digest: B256,
-}
+sol!(
+    #![sol(all_derives)]
+    struct Output {
+        address signer;
+        bytes32 digest;
+    }
+);
 
 /// Find byte ranges of concatenated JSON objects within a single string by matching braces.
 /// - Handles nested objects

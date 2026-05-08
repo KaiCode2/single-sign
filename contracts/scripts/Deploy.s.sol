@@ -22,6 +22,10 @@ import {LibString} from "solady/utils/LibString.sol";
 contract Deploy is Script {
     using LibString for string;
 
+    address public immutable WETH = 0x4200000000000000000000000000000000000006;
+    address public immutable USDC = 0x036CbD53842c5426634e7929541eC2318f3dCF7e;
+    address public immutable PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
+
     function run() external {
         // load ENV variables first
         uint256 ownerKey = vm.envUint("USER_PRIVATE_KEY");
@@ -38,7 +42,11 @@ contract Deploy is Script {
         );
         address singleSignAddress = address(singleSign);
         console2.log("Deployed SingleSign to", singleSignAddress);
+        vm.stopBroadcast();
 
+        vm.startBroadcast(ownerKey);
+        singleSign.approve(WETH, PERMIT2, type(uint256).max);
+        singleSign.approve(USDC, PERMIT2, type(uint256).max);
         vm.stopBroadcast();
     }
 
