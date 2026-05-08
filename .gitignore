@@ -24,3 +24,6 @@ target/
 # Ignore generated files
 contracts/src/ImageID.sol
 contracts/test/Elf.sol
+
+# Generated proof fixtures
+artifacts/

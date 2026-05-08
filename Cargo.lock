@@ -795,6 +795,8 @@ dependencies = [
  "common",
  "dotenvy",
  "guests",
+ "hex",
+ "risc0-ethereum-contracts",
  "risc0-zkvm",
  "serde",
  "serde_json",
@@ -3311,7 +3313,10 @@ name = "guests"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",
+ "alloy-signer",
+ "alloy-signer-local",
  "alloy-sol-types",
+ "common",
  "risc0-build",
  "risc0-build-ethereum",
  "risc0-zkvm",

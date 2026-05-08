@@ -5,7 +5,10 @@ edition = "2021"
 
 [dev-dependencies]
 alloy-primitives = { workspace = true }
+alloy-signer = { workspace = true }
+alloy-signer-local = { workspace = true, features = ["keystore"] }
 alloy-sol-types = { workspace = true }
+common = { path = "../common" }
 risc0-zkvm = { workspace = true, features = ["client"] }
 
 [build-dependencies]

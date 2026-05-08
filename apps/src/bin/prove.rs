@@ -1,14 +1,13 @@
-use app::PERMIT2_ADDRESS;
 use std::fs;
 use std::path::PathBuf;
 use tracing::{debug, info};
 
-use alloy_dyn_abi::{SolType, TypedData};
-use alloy_primitives::{Address, Bytes, Signature, U256};
+use alloy_dyn_abi::TypedData;
+use alloy_primitives::{Address, Bytes, Signature};
 use alloy_provider::ProviderBuilder;
 use alloy_signer_local::PrivateKeySigner;
+use alloy_sol_types::SolValue;
 use anyhow::{bail, Result};
-use boundless_market::Client;
 use clap::Parser;
 use guests::SINGLE_SIGN_ELF;
 use risc0_zkvm::{default_prover, ExecutorEnv, ProverOpts, VerifierContext};
@@ -19,17 +18,9 @@ use common::{find_concatenated_json_ranges, Input, Output};
 mod contracts {
     alloy_sol_types::sol!(
         #![sol(rpc, all_derives)]
-        Permit2,
-        concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../contracts/out/IPermit2.sol/IPermit2.json"
-        )
-    );
-
-    alloy_sol_types::sol!(
-        #![sol(rpc, all_derives)]
-        SingleSign,
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../contracts/out/SingleSign.sol/SingleSign.json")
+        interface SingleSign {
+            function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4);
+        }
     );
 }
 
@@ -60,10 +51,6 @@ struct Args {
     /// Address of a target contract.
     #[clap(short = 'a', long, env = "ACCOUNT_ADDRESS")]
     account_address: Address,
-
-    /// URL where provers can download the program.
-    #[clap(long, env)]
-    program_url: Option<Url>,
 }
 
 #[tokio::main]
@@ -72,7 +59,6 @@ async fn main() -> Result<()> {
         .with_env_filter(tracing_subscriber::filter::EnvFilter::from_default_env())
         .init();
 
-    // Load environment variables if present
     match dotenvy::dotenv() {
         Ok(path) => debug!("Loaded environment variables from {:?}", path),
         Err(e) if e.not_found() => debug!("No .env file found"),
@@ -81,24 +67,17 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    // Retain RPC-related params for parity (not used in this local proving flow)
-    let rpc_url = &args.rpc_url;
-    let private_key = &args.private_key;
-    let account_address = &args.account_address;
-    let _program_url = &args.program_url;
-
-    let signer = PrivateKeySigner::from_bytes(&private_key.to_bytes()).unwrap();
+    let signer = PrivateKeySigner::from_bytes(&args.private_key.to_bytes()).unwrap();
     let provider = ProviderBuilder::new()
         .wallet(signer)
-        .connect_http(rpc_url.clone());
+        .connect_http(args.rpc_url.clone());
+    let account_address = args.account_address;
 
-    // Read the aggregated compact JSON bytes from file
     let file_bytes = fs::read(&args.file_path)?;
     let typed_data_concat: Bytes = Bytes::from(file_bytes);
     let signature: Signature = args.signature;
     let signer: Address = args.signer;
 
-    // Mock digest ranges (replace with a real parser implementation later)
     let digest_ranges =
         find_concatenated_json_ranges(&String::from_utf8(typed_data_concat.to_vec()).unwrap())?;
     info!("Digest ranges: {:?}", digest_ranges);
@@ -111,17 +90,6 @@ async fn main() -> Result<()> {
             digest_range: range.clone(),
         };
         debug!("Input #{i}: {:?}", input);
-
-        // let client = Client::builder()
-        //     .with_rpc_url(rpc_url.clone())
-        //     .with_private_key(private_key.clone())
-        //     .build()
-        //     .await?;
-
-        // let request = client
-        //     .new_request()
-        //     .with_program(SINGLE_SIGN_ELF)
-        //     .with_stdin(input.as_bytes());
 
         info!("Proving input #{i}");
         let prove_info = tokio::task::spawn_blocking(move || {
@@ -144,11 +112,9 @@ async fn main() -> Result<()> {
 
         let receipt = prove_info.receipt;
 
-        // Decode public output committed by the guest
         let output: Output = Output::abi_decode(&receipt.journal.bytes).unwrap();
         info!("Guest output #{i} -> {:?}", output);
 
-        // Optional verification example (requires SINGLE_SIGN_ID):
         receipt.verify(guests::SINGLE_SIGN_ID).unwrap();
 
         let typed_data: TypedData = serde_json::from_str(
@@ -167,59 +133,6 @@ async fn main() -> Result<()> {
             .await
             .unwrap();
         info!("Is valid: {:?}", is_valid);
-
-        // if typed_data.primary_type == "PermitTransferFrom" {
-        //     debug!("PermitTransferFrom");
-        //     debug!("Typed data: {:?}", typed_data);
-        //     // Try calling PermitTransferFrom using Permit2
-        //     let permit = contracts::ISignatureTransfer::PermitTransferFrom {
-        //         permitted: contracts::ISignatureTransfer::TokenPermissions {
-        //             token: typed_data.message["permitted"]["token"]
-        //                 .as_str()
-        //                 .unwrap()
-        //                 .parse()
-        //                 .unwrap(),
-        //             amount: U256::from(
-        //                 typed_data.message["permitted"]["amount"]
-        //                     .as_str()
-        //                     .unwrap()
-        //                     .parse::<u128>()
-        //                     .unwrap(),
-        //             ),
-        //         },
-        //         nonce: U256::from(
-        //             typed_data.message["nonce"]
-        //                 .as_str()
-        //                 .unwrap()
-        //                 .parse::<u64>()
-        //                 .unwrap(),
-        //         ),
-        //         deadline: U256::from(
-        //             typed_data.message["deadline"]
-        //                 .as_str()
-        //                 .unwrap()
-        //                 .parse::<u64>()
-        //                 .unwrap(),
-        //         ),
-        //     };
-        //     let requested_amount = permit.permitted.amount;
-        //     let permit2 = contracts::Permit2::new(PERMIT2_ADDRESS, provider.clone());
-        //     let tx = permit2
-        //         .permitTransferFrom_0(
-        //             permit,
-        //             contracts::ISignatureTransfer::SignatureTransferDetails {
-        //                 to: signer.clone(),
-        //                 requestedAmount: requested_amount,
-        //             },
-        //             account_address.clone(),
-        //             Bytes::from(seal),
-        //         )
-        //         .send()
-        //         .await
-        //         .unwrap();
-        //     let receipt = tx.get_receipt().await.unwrap();
-        //     info!("Transaction receipt: {:?}", receipt);
-        // }
     }
 
     Ok(())

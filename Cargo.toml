@@ -16,7 +16,7 @@ boundless-market = { version = "1.0" }
 
 # risc0 monorepo dependencies.
 risc0-build = { version = "3.0.3", features = ["docker"] }
-risc0-zkvm = { version = "3.0.3", default-features = false }
+risc0-zkvm = { version = "3.0.3" }
 
 # risc0-ethereum dependencies.
 risc0-build-ethereum = { version = "3.0.1" }
