@@ -33,29 +33,36 @@ Smart contracts in `contracts/` are developed with Foundry. The contract test su
 single-sign
 ├── Cargo.toml                     # Workspace (apps, guests, common)
 ├── foundry.toml                   # Foundry config for contracts
+├── remappings.txt                 # Foundry import remappings
 ├── apps/                          # CLI binaries
-│   └── src/bin/{prove.rs,sign_file.rs}
+│   └── src/bin/{prove.rs,sign_file.rs,generate_fixture.rs}
 ├── common/                        # Shared types + helpers
 │   └── src/{lib.rs,typed_data.rs,signing.rs}
 ├── guests/                        # RISC Zero guest program(s)
-│   ├── Cargo.toml
+│   ├── build.rs                   # Generates ImageID.sol / Elf.sol on cargo build
 │   ├── src/lib.rs                 # include!(…/methods.rs) for built methods
-│   └── single-sign/src/main.rs    # Verifies signature + computes digest of slice
+│   ├── single-sign/src/main.rs    # Verifies signature + commits abi.encode(signer, digest)
+│   └── tests/single-sign.rs       # Executor tests against SINGLE_SIGN_ELF
 ├── contracts/                     # Solidity contracts (Foundry)
-│   ├── src/
-│   ├── test/
-│   └── scripts/
-└── examples/
-    └── typed_data_concat.json
+│   ├── src/SingleSign.sol         # ERC-1271 wrapper around IRiscZeroVerifier
+│   ├── src/ImageID.sol            # Auto-generated, gitignored
+│   ├── test/{SingleSign,SingleSignE2E}.t.sol
+│   ├── test/Elf.sol               # Auto-generated guest ELF path, gitignored
+│   ├── scripts/Deploy.s.sol
+│   └── configs/{verifiers,tokens}.toml
+├── examples/                      # Sample concatenated EIP-712 JSON inputs
+└── lib/                           # Foundry submodules (risc0-ethereum, permit2, solady)
 ```
 
 Notable pieces:
 
 - `common::typed_data::verify_digest` parses EIP‑712 JSON and computes its digest.
 - `common::signing::verify_signature` checks an EOA signature against the concatenation (EIP‑191 personal mode by default).
-- `apps/src/bin/prove.rs` loads a concatenated typed‑data file, finds slice ranges, proves each inside the zkVM, and prints `(signer, digest)`.
+- `common::find_concatenated_json_ranges` scans a compact concatenation of JSON objects and returns each `[start, end)` range.
 - `apps/src/bin/sign_file.rs` signs arbitrary file bytes and prints the digest, signature, and signer.
-- `guests/single-sign/src/main.rs` runs inside the zkVM and commits `(signer, digest)` to the journal.
+- `apps/src/bin/prove.rs` loads a concatenated typed‑data file, proves inclusion for each slice, and submits each receipt to a deployed `SingleSign` contract via ERC‑1271.
+- `apps/src/bin/generate_fixture.rs` produces `artifacts/single_sign_fixture.json` (signer, hash, journal, journalDigest, seal) for the Foundry E2E test.
+- `guests/single-sign/src/main.rs` runs inside the zkVM and commits `abi.encode(signer, digest)` to the journal so the contract can recompute it directly.
 
 ---
 
@@ -103,49 +110,36 @@ cargo test -p guests
 
 ### Sample commands
 
-- Sign a file's raw bytes and print digest, signature, and signer:
+Sign a file's raw bytes and print digest, signature, and signer:
 
 ```bash
-cargo run --bin sign_file -- --file-path ./stash/typed_data_concat.json
+cargo run --bin sign_file -- --file-path examples/typed_data_concat.json
 ```
 
-- Prove inclusion for each concatenated typed‑data JSON slice and print `(signer, digest)`:
+Prove each concatenated message and call `isValidSignature` on a deployed `SingleSign`:
 
 ```bash
-cargo run -- --file-path examples/typed_data_concat.json \
-  --signer 0x91738e8f069208baa0efe5441c6d0a9f0b9e27f2 \
-  --signature 0x04a482be75182d5bcb450c039d767cf8e24e3aeb35789a89dd7490ca2828b37468b6b081a55c567c0629df2180c5ca7758c04e3880bf76f2ccb38af3e493bea51c \
+cargo run --bin prove -- --file-path examples/typed_data_concat.json \
+  --signer <signer-address> \
+  --signature <hex-eip191-sig-over-the-file> \
   --rpc-url "https://ethereum-sepolia-rpc.publicnode.com" \
-  --private-key <hex-or-env> \
-  --account-address 0x5989b7E895D7f1bED932A82bEB40eB93264C787B
+  --private-key <hex-or-USER_PRIVATE_KEY env> \
+  --account-address <deployed-SingleSign-address>
 ```
 
-For faster local iteration, enable dev‑mode and optional execution logs:
-
-```bash
-RISC0_DEV_MODE=1 RUST_LOG=info cargo run
-```
-
-What you'll see:
-
-- The host prints the EIP‑712 digests for each sample Permit2 message.
-- It computes byte ranges for each compact JSON within the concatenation.
-- For each range, it proves inside the zkVM and prints the guest output `(signer, digest)`, then verifies the receipt against `SINGLE_SIGN_ID`.
+The signer/signature pair must satisfy `signature == sign_message_sync(file_bytes)` for `signer`, i.e. the EIP‑191 personal signature over the exact bytes in `--file-path`. `apps/src/bin/sign_file.rs` produces a matching pair.
 
 ---
 
 ## Customizing for Your Typed Data
 
-1) Build your EIP‑712 JSONs in the host. The sample code uses Permit2 structs, but you can construct any typed data as long as it conforms to EIP‑712. Ensure the JSON you pass to the guest is exactly the JSON you signed.
+1) Build your EIP‑712 JSONs in the host. The sample code uses Permit2 structs but any EIP‑712‑conformant typed data works.
 
-2) Compact and concatenate deterministically. The demo removes spaces and newlines before concatenation to make ranges stable:
+2) Concatenate the **already‑compact** JSONs (no whitespace) into a single payload. `common::find_concatenated_json_ranges` walks balanced braces (string‑aware) to recover each message's `[start, end)` range, so determinism comes from compactness alone — no separators required.
 
-- Use the same compaction when computing ranges and when preparing the exact bytes to sign.
-- Compute `[start, end)` for each message's compact JSON within the concatenated string.
+3) Sign once over the full concatenation with EIP‑191 personal sign (`SignerSync::sign_message_sync(bytes)`). Use a real EOA signer in production.
 
-3) Sign once over the full concatenation. The demo uses an in‑memory random key; in production, use a real EOA signer.
-
-4) Prove per message. For each range, call the zkVM with `Input { signer, signature, typed_data_concat, digest_range }` and obtain a receipt committing `(signer, digest)`.
+4) Prove per message: for each range, call the zkVM with `Input { signer, signature, typed_data_concat, digest_range }`. The journal is `abi.encode(signer, digest)` (64 bytes) — byte‑identical to what `SingleSign.sol` recomputes for `isValidSignature`.
 
 If you need to change signature semantics (e.g., EIP‑712 typed‑data signing vs EIP‑191 personal), update both the host signing method and `common::signing::verify_signature` mode accordingly so they match.
 
@@ -162,12 +156,11 @@ If you need to change signature semantics (e.g., EIP‑712 typed‑data signing 
 ## Development Tips
 
 - Determinism matters: any discrepancy between the bytes you sign and the bytes the guest sees will invalidate proofs. Keep compaction and ordering identical.
-- Logging: run with `RUST_LOG=info` to see progress and ranges.
-- Remote proving: you can integrate with Bonsai to offload proving. Example env:
-
-```bash
-BONSAI_API_KEY="…" BONSAI_API_URL="…" cargo run
-```
+- Logging: `RUST_LOG=info` for progress; `RUST_LOG=debug` is very chatty and will pollute stdout — don't redirect it through `cargo build -p guests`, or the generated `ImageID.sol` / `Elf.sol` end up containing log lines.
+- Choosing a prover for `generate_fixture` (in priority order):
+  - `RISC0_DEV_MODE=true` — fake seal, instant; for fixture/contract loop testing only.
+  - `BONSAI_API_KEY` and `BONSAI_API_URL` set in `.env` — Bonsai-hosted proving.
+  - `RISC0_PROVER=ipc` — uses the locally-installed `r0vm` plus Docker for the Groth16 lift; ~30–40 min wall clock on CPU for one message in the bundled example.
 
 ---
 
