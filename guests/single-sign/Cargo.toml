@@ -1,0 +1,20 @@
+[package]
+name = "single-sign"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+common = { path = "../../common" }
+alloy-primitives = { version = "1.0", default-features = false, features = [
+    "rlp",
+    "serde",
+    "std",
+] }
+alloy-sol-types = { version = "1.0" }
+risc0-zkvm = { version = "3.0", default-features = false, features = ["std"] }
+
+[profile.release]
+debug = 1
+lto = "thin"

@@ -1,5 +1,12 @@
 {
-  "rust-analyzer.rustup.enable": true,
-  "rust-analyzer.rustup.toolchain": "nightly-2025-07-09",
-  "rust-analyzer.server.extraEnv": { "RUSTUP_TOOLCHAIN": "nightly-2025-07-09" }
+    "rust-analyzer.linkedProjects": [
+        "./apps/Cargo.toml",
+        "./guests/Cargo.toml",
+        "./guests/single-sign/Cargo.toml",
+        "./common/Cargo.toml"
+    ],
+    "rust-analyzer.check.extraEnv": {
+        "RISC0_SKIP_BUILD": "1",
+        "RISC0_SKIP_BUILD_KERNELS": "1"
+    }
 }
